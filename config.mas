@@ -1,0 +1,4 @@
+<apaplmas>
+	<environment name="env" file="WumpusEnv.jar"/>
+	<agent name="agent0" file="agent.2apl"/>
+</apaplmas>

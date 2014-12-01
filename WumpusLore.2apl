@@ -1,0 +1,55 @@
+beliefs:
+// A spot is safe if there cannot be a pit or wumpus in that tile. Works only for unexplored cells.
+safe(X,Y):- not(outside(X,Y)),impossible(pit,X,Y),impossible(wumpus,X,Y). 
+// A spot is deadly there is either a wumpus or a pit present.
+is_deadly(X,Y):- wumpus(X,Y).
+is_deadly(X,Y):- pit(X,Y).
+nondeadly(X,Y):- not(is_deadly(X,Y)), not(visited(X,Y)).
+
+// (for unexplored tile) There cannot be a pit on (x,y) if (x,y) is not a candidate pit spot for any breeze.
+impossible(pit,X,Y):- not(visited(X,Y)),not(is_candidate(breeze,X,Y)). 
+// (for unexplored tile) There cannot be a Wumpus on (x,y) if (x,y) is not a candidate Wumpus spot for any stench.
+impossible(wumpus,X,Y):- not(visited(X,Y)),not(is_candidate(stench,X,Y)). 
+
+// You know where a pit is if one of its breezes has only 1 candidate, same for wumpus and stench.
+wumpus(X,Y):- only_candidate(stench,X,Y).
+pit(X,Y):- only_candidate(breeze,X,Y).
+
+// If an (x,y) position is the only candidate pit/wumpus for a percept, then there must be at least one adjacent
+// percept entry for which holds that all adjacent tiles to that entry, except for (x,y) cannot hold a pit/wumpus.
+only_candidate(Percept,X,Y):- X2 is X+1, percept(Percept,X2,Y), candidates(Percept,X2,Y,[node(X,Y)]).
+only_candidate(Percept,X,Y):- X2 is X-1, percept(Percept,X2,Y), candidates(Percept,X2,Y,[node(X,Y)]).
+only_candidate(Percept,X,Y):- Y2 is Y+1, percept(Percept,X,Y2), candidates(Percept,X,Y2,[node(X,Y)]).
+only_candidate(Percept,X,Y):- Y2 is Y-1, percept(Percept,X,Y2), candidates(Percept,X,Y2,[node(X,Y)]).
+
+// Gather the candidates for a percept on cell (x,y).
+candidates(Percept,X,Y,R):-
+	inspect(Percept,0,-1,X,Y,[],C1),
+	inspect(Percept,-1,0,X,Y,C1,C2),
+	inspect(Percept,0,1,X,Y,C2,C3),
+	inspect(Percept,1,0,X,Y,C3,R).
+
+// Check whether tile (x,y) is a candidate pit/wumpus, if so add it. 
+inspect(Percept,Dx,Dy,X,Y,Prev,Next):- 
+	NewX is X+Dx, NewY is Y+Dy,   
+	is_candidate(Percept,NewX,NewY),!, // We have to cut before the Next var is bound, 
+	Next = [node(NewX,NewY)|Prev].     // otherwise a failure of its unification will jump to the second entry for inspect/7.
+inspect(_,_,_,_,_,Next,Next).	   // If not a candidate just continue
+
+// Candidate check, clearly pits/wumpi (? plural wumpus?) must be inside the world and cannot be visited.
+// Plus adjacent to the candidate must not be a cleared spot.
+is_candidate(Percept,X,Y):-
+	not(outside(X,Y)),
+	not(visited(X,Y)),
+	X2 is X+1,X3 is X-1, Y2 is Y+1, Y3 is Y-1,
+	not(is_clear(Percept,X2,Y)), // Next to the candidate pit must not be a spot of which we know it is clear
+	not(is_clear(Percept,X3,Y)),
+	not(is_clear(Percept,X,Y2)),
+	not(is_clear(Percept,X,Y3)).
+	
+// A spot is clear if it is both visited and the agent did not perceive the searched percept. 
+// Note that for unvisited spots we assume that they have a breeze/stench on them.
+is_clear(Percept,X,Y):- 
+	visited(X,Y),
+	not(percept(Percept,X,Y)). 
+	

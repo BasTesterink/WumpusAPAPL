@@ -1,0 +1,7 @@
+dimensions 4 4
+agent 0 0 0 
+chest 0 0
+pit 0 2
+pit 3 2 
+wumpus 3 1
+gold 2 3

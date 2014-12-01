@@ -1,0 +1,28 @@
+beliefs:
+// Purely for demonstration reasons, not of importance in the reasoning of the agent
+// What these predicates do is loop through the entire grid and see which symbols should
+// be active for each tile.
+world_view(Width,Height,World):-
+	mood(Mood), // Get the mood
+	add_coordinates(1,1,Width,Height,[mood(Mood)],World),!.
+
+
+add_coordinates(Width,Y,Width,Height,Acc,World):- 				// Reached the end of the line
+	Y2 is Y+1, add_coordinates(1,Y2,Width,Height,Acc,World). 	// Go to next line
+add_coordinates(_,Height,_,Height,Acc,Acc). 					// End of grid
+add_coordinates(X,Y,Width,Height,Acc,World):-					// Within grid
+	see_if(wumpus(X,Y),wumpus(X,Y),Acc,Acc2),
+	see_if(pit(X,Y),pit(X,Y),Acc2,Acc3),
+	see_if(gold(X,Y),gold(X,Y),Acc3,Acc4),
+	see_if(percept(breeze,X,Y),breeze(X,Y),Acc4,Acc5),
+	see_if(percept(stench,X,Y),stench(X,Y),Acc5,Acc6),
+	see_if(safe(X,Y),safe(X,Y),Acc6,Acc7),
+	see_if(position(X,Y),position(X,Y),Acc7,Acc8),
+	see_if(visited(X,Y),visited(X,Y),Acc8,Acc9),
+	see_if(chest(X,Y),chest(X,Y),Acc9,Acc10), 
+	see_if(nondeadly(X,Y),nondeadly(X,Y),Acc10,Acc11), 
+	X2 is X+1, add_coordinates(X2,Y,Width,Height,Acc11,World).
+
+// See if a certain belief is true, if so add its token to the list.
+see_if(Belief,Rep,Acc,[Rep|Acc]):- Belief,!. // Belief is true so add representative token 
+see_if(_,_,Acc,Acc). 						 // Belief was not true so just continue 

@@ -1,0 +1,130 @@
+include: WumpusLore.2apl;			// Reasoning about where the Wumpus or pits are and which tiles are safe.
+include: DemonstrationBeliefs.2apl; // Collecting the belief state of the agent
+/* 
+ * Wumpus agent. This agent is made for solving Wumpus levels in which the agent starts at (1,1), has the chest at (1,1),
+ * has no weaponry to murder the Wumpus, is on its own, and has only one gold bar to search for.
+ * Author: Bas Testerink, Utrecht University, The Netherlands
+ */  
+beliefs:  
+
+	// Initial data.
+	position(1,1). 				// The given start position
+	visited(1,1). 				// The start position is already visited
+	chest(1,1).					// Location of the chest
+	gold(X,Y):- glitter(X,Y). 	// Glitter implies gold  
+	
+	// The emotional state of the agent (looks nice in GUI)
+	mood(happy):- chest(X,Y),gold(X,Y).          // Goal reached so the agent is happy
+	mood(content):- has(gold).					 // Agent has grabbed the gold so is content
+	mood(angry):- not(has(gold)),not(gold(1,1)). // Mood is angry when no gold is found or delivered
+	
+	// Given an X and Y, the third arguments becomes the direction the agent should move to.
+	direction(GoalX,_,left):- position(X,_),X>GoalX.  
+	direction(GoalX,_,right):- position(X,_),X<GoalX. 
+	direction(_,GoalY,down):- position(_,Y),Y>GoalY. 
+	direction(_,GoalY,up):- position(_,Y),Y<GoalY.
+	
+	// Determine the new position given a direction. Fails if the move is - to the best knowledge of the agent - impossible.
+	new_position(up,X,Y):- upwards(X,Y).							
+	new_position(down,X,Y):- downwards(X,Y).
+	new_position(left,X,Y):- leftwards(X,Y).
+	new_position(right,X,Y):- rightwards(X,Y).
+	
+	// Determine the new position after an upwards/downwards/leftwards/rightwards movement.
+	upwards(X,Y):- position(X,Y2), Y is Y2+1, not(outside(X,Y)).
+	downwards(X,Y):- position(X,Y2), Y is Y2-1, not(outside(X,Y)).
+	leftwards(X,Y):- position(X2,Y), X is X2-1, not(outside(X,Y)).
+	rightwards(X,Y):- position(X2,Y), X is X2+1, not(outside(X,Y)).
+	
+	// Check whether an (x,y)-coordinate is outside of the world.
+	outside(X,_):- worldsize(X,_).
+	outside(_,Y):- worldsize(_,Y). 
+		
+beliefupdates: 
+
+	// Update position and visited area's.
+	{visited(Nx,Ny),position(X,Y)} UpdatePosition(Nx,Ny) {not position(X,Y), position(Nx,Ny)}
+	{position(X,Y)} UpdatePosition(Nx,Ny) {not position(X,Y), position(Nx,Ny), visited(Nx,Ny)}
+
+	// Succesfully done a gripper action.
+	{glitter(X,Y),position(X,Y)} Gripper(grab) {not glitter(X,Y), has(gold)}
+	{has(gold),position(X,Y)} Gripper(drop) {glitter(X,Y), not has(gold)}
+	
+	// Percept updates.
+	{  } Percept(breeze,yes,X,Y) { percept(breeze,X,Y) }
+	{  } Percept(glitter,yes,X,Y) { glitter(X,Y) }
+	{  } Percept(stench,yes,X,Y) { percept(stench,X,Y) }
+	{  } Percept(_,no,_,_) { dummy } // Dummy is because 2APL currently does not allow an empty post condition 
+	
+plans: 
+	@env(getWorldSize(),R); 
+	B(R=size(Width,Height));
+	+worldsize(Width+1,Height+1);
+	adoptz(informaudience);
+	adoptz(gold(1,1)); // The goal is to find the gold and bring it to the chest
+
+pgrules: 
+	
+	// Found the gold, and it is not at the goal position (if it was the goal would have been dropped). So grab it.
+	gold(Gx,Gy) <- gold(X,Y) and position(X,Y) | {
+		gripper(grab); 						// Grab the gold
+	}
+	
+	// Gold is in possession: manouver towards the goal position, drop the gold, and show the GUI the belief state state.
+	gold(Gx,Gy) <- has(gold) and position(X,Y) and worldsize(Width,Height) and world_view(Width,Height,World)| { 
+		@env(pathTo(World,chest),Path);					// Call path planning algorithm for going to a visited location
+		traverse_path(Path);							// Follow the path towards the gold
+		gripper(drop);									// Drop the gold
+	}
+	
+	// Gold is wanted but the agent does not know where it is. Thus it must search for it.
+	gold(Gx,Gy) <- not(has(gold)) and not(glitter(_,_)) and position(X,Y) and worldsize(Width,Height) and world_view(Width, Height,World)| {
+		@env(pathTo(World,safe),PathToSafe);				// Calculate path to safe spot
+		if(PathToSafe=[]){				   		// If no such path exists (i.e. no safe spots) 	   		
+			@env(pathTo(World,nondeadly),PathToNotDeadly); 	// Look for a tile that is not certain to be deadly 
+			if(PathToNotDeadly=[]){         		// If such a path is also nonexistent...
+				dropgoal(gold(1,1)); 		   		// ... then the goal unachievable
+			} else {						   		// Otherwise traverse this path and perceive at the end of it
+				traverse_path(PathToNotDeadly); 
+				perceive();
+			}
+		} else {
+			traverse_path(PathToSafe);		   		// Traverse safe path
+		    perceive();						   		// Perceive at the end tile
+		}
+	}
+	
+	// Get and transfer beliefs. Just for demonstration purposes, not relevant for the agent.
+	informaudience <-  worldsize(Width,Height) and world_view(Width,Height,World) | {
+		@env(surrender_beliefs(World));
+	}
+	
+pcrules: 
+
+	// Traverse a path.
+	traverse_path([]) <- true | {skip;}	// Path is finished
+	traverse_path([Dir|Rest]) <- new_position(Dir,X,Y) | { 
+		@env(move(Dir));				// Path is not finished, move toward next node
+		UpdatePosition(X,Y); 			// Update the believed position
+		traverse_path(Rest); 			// Continue along the path
+	} 
+	
+	// Gripper action.
+	gripper(Action) <- true | {
+		@env(gripper(Action));			// Call the environment to perform the action
+		Gripper(Action);				// Update belief about the gold's position
+	}
+	
+	// Perceive the environment on the current position.
+	perceive() <- position(X,Y) | {
+		@env(perceive(),R);						// Get the boolean tuple from the environment
+		B(R = [Breeze,Glitter,Stench,Death]);	// Obtain individual elements
+		if(Death = yes){						// If the agent is dead
+			G(gold(Gx,Gy));						// Get the goal
+			dropgoal(gold(Gx,Gy)); 				// Drop it, it is impossible now to achieve
+		} else {								// Otherwise update the individual percepts
+			Percept(breeze,Breeze,X,Y);
+			Percept(glitter,Glitter,X,Y);
+			Percept(stench,Stench,X,Y);
+		}
+	}
